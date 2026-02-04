@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스타크래프트 전적 대시보드</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        .sc-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+        .neon-border {
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        }
+        .neon-text {
+            text-shadow: 0 0 5px rgba(56, 189, 248, 0.8);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b82f6; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #2563eb; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // Icon Components
+        const TrophyIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+        );
+
+        const SwordIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+        );
+
+        const UserGroupIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+        );
+
+        const App = () => {
+            // State
+            const [players, setPlayers] = useState([
+                { id: 1, name: '테란황제' },
+                { id: 2, name: '폭풍저그' },
+                { id: 3, name: '프로토스' },
+                { id: 4, name: '초보일꾼' }
+            ]);
+            const [matches, setMatches] = useState([]);
+            const [newPlayerName, setNewPlayerName] = useState('');
+            const [view, setView] = useState('dashboard'); // dashboard, record, players
+
+            // UI State
+            const [deleteTarget, setDeleteTarget] = useState(null); // 삭제 확인용
+            const [errorMsg, setErrorMsg] = useState(''); // 에러 메시지용
+
+            // Record Match State
+            const [selectedWinners, setSelectedWinners] = useState([]);
+            const [selectedLosers, setSelectedLosers] = useState([]);
+            const [mapName, setMapName] = useState('빠른무한');
+
+            // Add Player
+            const addPlayer = () => {
+                if (!newPlayerName.trim()) return;
+                const newId = players.length > 0 ? Math.max(...players.map(p => p.id)) + 1 : 1;
+                setPlayers([...players, { id: newId, name: newPlayerName }]);
+                setNewPlayerName('');
+            };
+
+            // Remove Player
+            const removePlayer = (id) => {
+                setPlayers(players.filter(p => p.id !== id));
+                setDeleteTarget(null); // 삭제 후 타겟 초기화
+            };
+
+            // Record Match Logic
+            const toggleSelection = (id, team) => {
+                if (team === 'winner') {
+                    if (selectedWinners.includes(id)) {
+                        setSelectedWinners(selectedWinners.filter(pid => pid !== id));
+                    } else {
+                        // Cannot be in both teams
+                        if (selectedLosers.includes(id)) return;
+                        setSelectedWinners([...selectedWinners, id]);
+                    }
+                } else {
+                    if (selectedLosers.includes(id)) {
+                        setSelectedLosers(selectedLosers.filter(pid => pid !== id));
+                    } else {
+                        // Cannot be in both teams
+                        if (selectedWinners.includes(id)) return;
+                        setSelectedLosers([...selectedLosers, id]);
+                    }
+                }
+            };
+
+            const submitMatch = () => {
+                if (selectedWinners.length === 0 || selectedLosers.length === 0) {
+                    setErrorMsg('승리팀과 패배팀에 최소 1명 이상의 선수가 있어야 합니다.');
+                    setTimeout(() => setErrorMsg(''), 3000); // 3초 후 에러 메시지 사라짐
+                    return;
+                }
+
+                const newMatch = {
+                    id: Date.now(),
+                    date: new Date().toLocaleDateString(),
+                    map: mapName,
+                    winners: selectedWinners,
+                    losers: selectedLosers
+                };
+
+                setMatches([newMatch, ...matches]);
+                setSelectedWinners([]);
+                setSelectedLosers([]);
+                setErrorMsg('');
+                setView('dashboard');
+            };
+
+            // Calculate Stats
+            const stats = useMemo(() => {
+                const playerStats = {};
+
+                // Initialize
+                players.forEach(p => {
+                    playerStats[p.id] = { 
+                        id: p.id, 
+                        name: p.name, 
+                        wins: 0, 
+                        losses: 0, 
+                        total: 0,
+                        winRate: 0 
+                    };
+                });
+
+                // Compute
+                matches.forEach(match => {
+                    match.winners.forEach(pid => {
+                        if (playerStats[pid]) {
+                            playerStats[pid].wins += 1;
+                            playerStats[pid].total += 1;
+                        }
+                    });
+                    match.losers.forEach(pid => {
+                        if (playerStats[pid]) {
+                            playerStats[pid].losses += 1;
+                            playerStats[pid].total += 1;
+                        }
+                    });
+                });
+
+                // Calculate Rates
+                Object.values(playerStats).forEach(stat => {
+                    stat.winRate = stat.total === 0 ? 0 : ((stat.wins / stat.total) * 100).toFixed(1);
+                });
+
+                // Sort by Win Rate (Desc) then Total Games (Desc)
+                return Object.values(playerStats).sort((a, b) => {
+                    if (parseFloat(b.winRate) !== parseFloat(a.winRate)) {
+                        return parseFloat(b.winRate) - parseFloat(a.winRate);
+                    }
+                    return b.total - a.total;
+                });
+
+            }, [players, matches]);
+
+            // Helper to get names
+            const getNames = (ids) => ids.map(id => players.find(p => p.id === id)?.name || 'Unknown').join(', ');
+
+            return (
+                <div className="min-h-screen pb-10">
+                    {/* Header */}
+                    <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
+                        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 className="text-2xl font-bold sc-font text-blue-400 neon-text flex items-center gap-2">
+                                <SwordIcon /> SC:BW TRACKER
+                            </h1>
+                            <nav className="flex gap-4 text-sm font-medium">
+                                <button 
+                                    onClick={() => setView('dashboard')}
+                                    className={`px-3 py-1 rounded transition ${view === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    랭킹
+                                </button>
+                                <button 
+                                    onClick={() => setView('record')}
+                                    className={`px-3 py-1 rounded transition ${view === 'record' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    기록하기
+                                </button>
+                                <button 
+                                    onClick={() => setView('players')}
+                                    className={`px-3 py-1 rounded transition ${view === 'players' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                                >
+                                    선수관리
+                                </button>
+                            </nav>
+                        </div>
+                    </header>
+
+                    <main className="max-w-4xl mx-auto px-4 mt-6">
+                        
+                        {/* VIEW: DASHBOARD */}
+                        {view === 'dashboard' && (
+                            <div className="space-y-6">
+                                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 neon-border">
+                                    <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
+                                        <TrophyIcon /> 실시간 순위표
+                                    </h2>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="text-slate-400 border-b border-slate-700 text-sm">
+                                                    <th className="pb-3 pl-2">순위</th>
+                                                    <th className="pb-3">이름</th>
+                                                    <th className="pb-3 text-center">승률</th>
+                                                    <th className="pb-3 text-center">전적</th>
+                                                    <th className="pb-3 text-center">승</th>
+                                                    <th className="pb-3 text-center">패</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-700">
+                                                {stats.map((stat, idx) => (
+                                                    <tr key={stat.id} className="hover:bg-slate-700/50 transition">
+                                                        <td className="py-4 pl-2 font-mono text-slate-400">#{idx + 1}</td>
+                                                        <td className="py-4 font-bold text-white">{stat.name}</td>
+                                                        <td className="py-4 text-center">
+                                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                                parseFloat(stat.winRate) >= 60 ? 'bg-green-900 text-green-300' :
+                                                                parseFloat(stat.winRate) >= 50 ? 'bg-blue-900 text-blue-300' :
+                                                                parseFloat(stat.winRate) >= 40 ? 'bg-yellow-900 text-yellow-300' :
+                                                                'bg-red-900 text-red-300'
+                                                            }`}>
+                                                                {stat.winRate}%
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-4 text-center text-slate-300">{stat.total}전</td>
+                                                        <td className="py-4 text-center text-blue-400">{stat.wins}</td>
+                                                        <td className="py-4 text-center text-red-400">{stat.losses}</td>
+                                                    </tr>
+                                                ))}
+                                                {stats.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="6" className="py-8 text-center text-slate-500">
+                                                            아직 기록된 경기가 없습니다.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Recent Matches */}
+                                <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                                    <h3 className="text-lg font-bold mb-4 text-slate-300">최근 경기 기록</h3>
+                                    <div className="space-y-3">
+                                        {matches.map((match) => (
+                                            <div key={match.id} className="bg-slate-900/50 p-4 rounded-lg border border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div className="text-xs text-slate-500 font-mono min-w-[80px]">
+                                                    {match.date}<br/>
+                                                    <span className="text-slate-400">{match.map}</span>
+                                                </div>
+                                                <div className="flex-1 grid grid-cols-2 gap-4 items-center">
+                                                    <div className="text-right">
+                                                        <span className="text-blue-400 font-bold text-sm block mb-1">WIN</span>
+                                                        <span className="text-white text-sm">{getNames(match.winners)}</span>
+                                                    </div>
+                                                    <div className="text-center text-slate-600 font-bold text-xs">VS</div>
+                                                    <div className="text-left row-start-1 col-start-2">
+                                                        <span className="text-red-400 font-bold text-sm block mb-1">LOSE</span>
+                                                        <span className="text-slate-300 text-sm">{getNames(match.losers)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {matches.length === 0 && (
+                                            <p className="text-center text-slate-500 py-4">최근 기록이 없습니다.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* VIEW: RECORD MATCH */}
+                        {view === 'record' && (
+                            <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 neon-border max-w-2xl mx-auto">
+                                <h2 className="text-xl font-bold mb-6 text-white text-center">경기 결과 입력</h2>
+                                
+                                <div className="mb-6">
+                                    <label className="block text-slate-400 text-sm mb-2">경기 맵</label>
+                                    <div className="w-full bg-slate-900 border border-slate-600 rounded p-3 text-blue-400 font-bold flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.293.707L6 18.414V5.586L3.707 3.293zM17.707 5.293L14 1.586v12.828l2.293 2.293A1 1 0 0018 16V6a1 1 0 00-.293-.707z" clipRule="evenodd" />
+                                        </svg>
+                                        빠른무한 (Fastest)
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-8 mb-8">
+                                    {/* Winners */}
+                                    <div>
+                                        <h3 className="text-blue-400 font-bold mb-3 border-b border-blue-900 pb-2">승리 팀 (Winners)</h3>
+                                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                            {players.map(player => (
+                                                <button
+                                                    key={player.id}
+                                                    onClick={() => toggleSelection(player.id, 'winner')}
+                                                    disabled={selectedLosers.includes(player.id)}
+                                                    className={`w-full text-left p-2 rounded text-sm transition ${
+                                                        selectedWinners.includes(player.id) 
+                                                            ? 'bg-blue-600 text-white ring-2 ring-blue-400' 
+                                                            : selectedLosers.includes(player.id)
+                                                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                                                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                                    }`}
+                                                >
+                                                    {player.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Losers */}
+                                    <div>
+                                        <h3 className="text-red-400 font-bold mb-3 border-b border-red-900 pb-2">패배 팀 (Losers)</h3>
+                                        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                            {players.map(player => (
+                                                <button
+                                                    key={player.id}
+                                                    onClick={() => toggleSelection(player.id, 'loser')}
+                                                    disabled={selectedWinners.includes(player.id)}
+                                                    className={`w-full text-left p-2 rounded text-sm transition ${
+                                                        selectedLosers.includes(player.id) 
+                                                            ? 'bg-red-600 text-white ring-2 ring-red-400' 
+                                                            : selectedWinners.includes(player.id)
+                                                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                                                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                                    }`}
+                                                >
+                                                    {player.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {errorMsg && (
+                                    <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded text-red-200 text-center text-sm animate-pulse">
+                                        {errorMsg}
+                                    </div>
+                                )}
+
+                                <button 
+                                    onClick={submitMatch}
+                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-lg shadow-lg shadow-blue-900/50 transition transform active:scale-95"
+                                >
+                                    경기 결과 저장하기
+                                </button>
+                            </div>
+                        )}
+
+                        {/* VIEW: PLAYERS */}
+                        {view === 'players' && (
+                            <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 max-w-2xl mx-auto">
+                                <h2 className="text-xl font-bold mb-6 text-white flex items-center gap-2">
+                                    <UserGroupIcon /> 플레이어 관리
+                                </h2>
+                                
+                                <div className="flex gap-2 mb-6">
+                                    <input 
+                                        type="text" 
+                                        value={newPlayerName}
+                                        onChange={(e) => setNewPlayerName(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && addPlayer()}
+                                        placeholder="새 플레이어 이름 입력"
+                                        className="flex-1 bg-slate-900 border border-slate-600 rounded px-4 py-2 text-white focus:border-blue-500 outline-none"
+                                    />
+                                    <button 
+                                        onClick={addPlayer}
+                                        className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded font-medium transition"
+                                    >
+                                        추가
+                                    </button>
+                                </div>
+
+                                <ul className="space-y-2">
+                                    {players.map(player => (
+                                        <li key={player.id} className="flex justify-between items-center bg-slate-700/50 p-3 rounded hover:bg-slate-700 transition">
+                                            <span className="text-slate-200">{player.name}</span>
+                                            {deleteTarget === player.id ? (
+                                                <div className="flex items-center gap-2 animate-fadeIn">
+                                                    <span className="text-xs text-red-400 mr-1">정말 삭제?</span>
+                                                    <button 
+                                                        onClick={() => removePlayer(player.id)}
+                                                        className="bg-red-600 hover:bg-red-500 text-white text-xs px-3 py-1 rounded transition"
+                                                    >
+                                                        확인
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setDeleteTarget(null)}
+                                                        className="bg-slate-600 hover:bg-slate-500 text-white text-xs px-3 py-1 rounded transition"
+                                                    >
+                                                        취소
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => setDeleteTarget(player.id)}
+                                                    className="text-slate-500 hover:text-red-400 text-sm px-2 transition"
+                                                >
+                                                    삭제
+                                                </button>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                                <p className="mt-4 text-xs text-slate-500">
+                                    * 플레이어를 삭제해도 기존 경기 기록은 대시보드 계산에 남아있을 수 있습니다.
+                                </p>
+                            </div>
+                        )}
+
+                    </main>
+                    
+                    <footer className="text-center text-slate-600 text-xs mt-12 mb-4">
+                        StarCraft Win/Loss Tracker &copy; 2026<br/>
+                        For the glory of Aiur
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
